@@ -33,18 +33,20 @@ def assign_dedup_groups(new_jobs: List[Dict[str, Any]], existing_jobs: List[Dict
         job["dedup_group_id"] = matched_group or str(uuid.uuid4())
         pool.append((job, tokens))
 
-# Link Validator worker (HEAD first, GET fallback, 2 fails -> purge)
-async def check_single_url(client: httpx.AsyncClient, url: str) -> str:
+from curl_cffi.requests import AsyncSession
+
+# Link Validator worker (HEAD first, GET fallback, 2 fails -> purge) with TLS bypass
+async def check_single_url(session: AsyncSession, url: str) -> str:
     try:
-        r = await client.head(url, follow_redirects=True, timeout=8)
+        r = await session.head(url, allow_redirects=True, timeout=10)
         if r.status_code in (404, 410):
             return "dead"
         if r.status_code >= 400:
-            r = await client.get(url, follow_redirects=True, timeout=8)
+            r = await session.get(url, allow_redirects=True, timeout=10)
             if r.status_code in (404, 410):
                 return "dead"
         return "live" if r.status_code < 400 else "unknown"
-    except (httpx.TimeoutException, httpx.ConnectError):
+    except Exception:
         return "unknown"
 
 async def run_link_validation(stale_hours: int = 6, concurrency: int = 5):
@@ -55,10 +57,13 @@ async def run_link_validation(stale_hours: int = 6, concurrency: int = 5):
 
     sem = asyncio.Semaphore(concurrency)
     headers = {"User-Agent": scrapers.DEFAULT_UA}
-    async with httpx.AsyncClient(headers=headers) as client:
+    proxy = scrapers.get_proxy()
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+
+    async with AsyncSession(headers=headers, proxies=proxies, impersonate=scrapers.DEFAULT_IMPERSONATE) as session:
         async def bounded_check(job):
             async with sem:
-                res = await check_single_url(client, job["url"])
+                res = await check_single_url(session, job["url"])
                 await asyncio.sleep(0.3)
                 return job, res
 

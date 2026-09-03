@@ -11,12 +11,14 @@ An autonomous, multi-tier job scraper and aggregator for India-focused hiring pl
 | **Shine.com** | Tier 2 | Next.js SSR JSON (`__NEXT_DATA__`) |
 | **Freshersworld** | Tier 2 | Entry-level / fresher HTML parser |
 | **Apna** | Tier 2 | Blue-collar / fresher HTML parser |
-| **Indeed India** | Tier 2 | Direct mobile SSR scraper |
+| **Indeed India** | Tier 2 | Direct mobile SSR scraper (Safari17 TLS bypass) |
 | **Naukri** | Tier 1/2 | Native Windows Edge via Playwright (zero extra binary downloads) |
+| **Glassdoor** | Tier 3 | Direct HTML scraper (Chrome124 TLS bypass) |
 | **LinkedIn** | Tier 3 | Public guest search API |
 
 ## Core Features
 
+- **TLS Fingerprint Bypass**: Integrates `curl_cffi` browser impersonation (`chrome124`, `safari17_0`) across scrapers and link validation to bypass Cloudflare, JA3/JA4 fingerprinting, and HTTP/2 bot detection.
 - **Jaccard Deduplication**: Token-based Jaccard similarity thresholding (`0.75`) on Title + Company + Location to group cross-board duplicates.
 - **Dead-Link Auto-Purge**: Independent validation worker that sends `HEAD` requests (with `GET` fallback). Two consecutive failures automatically purges dead links.
 - **Proxy Rotation & Polite Jitter**: Reads from `proxies.txt` or `PROXY_LIST` environment variable with randomized jitter delays between requests.

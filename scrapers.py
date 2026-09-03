@@ -9,10 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from bs4 import BeautifulSoup
-import httpx
+from curl_cffi import requests
+from curl_cffi.requests import Session
 
-DEFAULT_TIMEOUT = 15
-DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+DEFAULT_TIMEOUT = 20
+DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+DEFAULT_IMPERSONATE = "chrome124"
 
 # ponytail: proxy rotation from proxies.txt or PROXY_LIST env; fallback to direct connection
 def _load_proxies() -> List[str]:
@@ -30,14 +32,15 @@ _PROXY_CYCLE = itertools.cycle(_PROXIES) if _PROXIES else None
 def get_proxy() -> Optional[str]:
     return next(_PROXY_CYCLE) if _PROXY_CYCLE else None
 
-def get_client(headers: Optional[Dict[str, str]] = None, timeout: int = DEFAULT_TIMEOUT, follow_redirects: bool = True) -> httpx.Client:
+# ponytail: TLS fingerprint bypass via curl_cffi (JA3, JA4, HTTP/2 frames, cipher suites identical to real browser)
+def get_session(headers: Optional[Dict[str, str]] = None, impersonate: str = DEFAULT_IMPERSONATE) -> Session:
     h = dict(headers or {})
     if "User-Agent" not in h:
         h["User-Agent"] = DEFAULT_UA
     proxy = get_proxy()
-    # ponytail: polite jitter to prevent rapid-fire IP blocks
-    time.sleep(random.uniform(0.3, 0.8))
-    return httpx.Client(headers=h, proxy=proxy, timeout=timeout, follow_redirects=follow_redirects)
+    time.sleep(random.uniform(0.3, 0.7))
+    proxies = {"http": proxy, "https": proxy} if proxy else None
+    return Session(headers=h, proxies=proxies, impersonate=impersonate, timeout=DEFAULT_TIMEOUT)
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -47,8 +50,8 @@ def scrape_instahyre(query: str = "developer", count: int = 20) -> List[Dict[str
     url = f"https://www.instahyre.com/api/v1/job_search/?count={count}&offset=0"
     jobs = []
     try:
-        with get_client() as client:
-            resp = client.get(url)
+        with get_session() as s:
+            resp = s.get(url)
             resp.raise_for_status()
             data = resp.json().get("objects", [])
     except Exception as e:
@@ -89,8 +92,8 @@ def scrape_internshala(query: str = "developer", count: int = 20) -> List[Dict[s
     url = f"https://internshala.com/jobs/{slug}-jobs/"
     jobs = []
     try:
-        with get_client() as client:
-            resp = client.get(url)
+        with get_session() as s:
+            resp = s.get(url, allow_redirects=True)
             if resp.status_code != 200:
                 return []
             html = resp.text
@@ -140,8 +143,8 @@ def scrape_shine(query: str = "developer", count: int = 20) -> List[Dict[str, An
     url = f"https://www.shine.com/job-search/{slug}-jobs"
     jobs = []
     try:
-        with get_client() as client:
-            resp = client.get(url)
+        with get_session() as s:
+            resp = s.get(url)
             if resp.status_code != 200:
                 return []
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -187,8 +190,8 @@ def scrape_freshersworld(query: str = "developer", count: int = 20) -> List[Dict
     url = f"https://www.freshersworld.com/jobs/jobsearch/{slug}-jobs"
     jobs = []
     try:
-        with get_client() as client:
-            resp = client.get(url)
+        with get_session() as s:
+            resp = s.get(url, allow_redirects=True)
             if resp.status_code != 200:
                 return []
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -239,8 +242,8 @@ def scrape_apna(query: str = "developer", count: int = 20) -> List[Dict[str, Any
     url = f"https://apna.co/jobs?location=all-india&text={query}"
     jobs = []
     try:
-        with get_client() as client:
-            resp = client.get(url)
+        with get_session() as s:
+            resp = s.get(url)
             if resp.status_code != 200:
                 return []
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -279,7 +282,7 @@ def scrape_apna(query: str = "developer", count: int = 20) -> List[Dict[str, Any
         })
     return jobs
 
-# TIER 2: Indeed India (Direct Server-rendered Mobile)
+# TIER 2: Indeed India (Direct Mobile with Safari/Chrome TLS fingerprint bypass)
 def scrape_indeed(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
     url = f"https://in.indeed.com/m/jobs?q={query}&l=India"
     headers = {
@@ -292,8 +295,8 @@ def scrape_indeed(query: str = "developer", count: int = 20) -> List[Dict[str, A
     }
     jobs = []
     try:
-        with get_client(headers=headers) as client:
-            resp = client.get(url)
+        with get_session(headers=headers, impersonate="safari17_0") as s:
+            resp = s.get(url, allow_redirects=True)
             if resp.status_code != 200:
                 return []
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -345,7 +348,7 @@ def scrape_indeed(query: str = "developer", count: int = 20) -> List[Dict[str, A
         })
     return jobs
 
-# TIER 1/2: Naukri (Native Windows Edge via Playwright, zero extra binary downloads)
+# TIER 1/2: Naukri (Native Windows Edge via Playwright)
 def scrape_naukri(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
     slug = query.strip().replace(" ", "-").lower()
     url = f"https://www.naukri.com/{slug}-jobs"
@@ -416,8 +419,8 @@ def scrape_linkedin(query: str = "developer", count: int = 20) -> List[Dict[str,
     url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={query}&location=India&start=0"
     jobs = []
     try:
-        with get_client() as client:
-            resp = client.get(url)
+        with get_session() as s:
+            resp = s.get(url)
             if resp.status_code != 200:
                 return []
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -457,6 +460,58 @@ def scrape_linkedin(query: str = "developer", count: int = 20) -> List[Dict[str,
         })
     return jobs
 
+# TIER 3: Glassdoor (Unlocked via Chrome124 TLS Fingerprint Impersonation)
+def scrape_glassdoor(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
+    slug = query.strip().replace(" ", "-").lower()
+    url = f"https://www.glassdoor.co.in/Job/india-{slug}-jobs-SRCH_IL.0,5_IN115_KO6,15.htm"
+    headers = {
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+    jobs = []
+    try:
+        with get_session(headers=headers, impersonate="chrome124") as s:
+            resp = s.get(url, allow_redirects=True)
+            if resp.status_code != 200:
+                return []
+            soup = BeautifulSoup(resp.text, "html.parser")
+            cards = soup.find_all("li", class_=re.compile(r"JobsList_jobListItem|jobListing"))
+    except Exception as e:
+        print(f"[glassdoor] fetch error: {e}")
+        return []
+
+    now = _now_iso()
+    for c in cards[:count]:
+        t_el = c.find("a", class_=re.compile(r"jobTitle|JobCard_jobTitle"))
+        c_el = c.find(class_=re.compile(r"EmployerName|EmployerProfile"))
+        l_el = c.find(class_=re.compile(r"location|JobCard_location"))
+        if not t_el:
+            continue
+        href = t_el.get("href", "")
+        if href and not href.startswith("http"):
+            href = f"https://www.glassdoor.co.in{href}"
+        m = re.search(r"jobListingId=(\d+)", href)
+        job_id = m.group(1) if m else str(uuid.uuid4())
+        jobs.append({
+            "id": str(uuid.uuid4()),
+            "source": "glassdoor",
+            "source_job_id": f"glassdoor_{job_id}",
+            "title": t_el.get_text(strip=True),
+            "company": c_el.get_text(strip=True) if c_el else "Unknown Company",
+            "location": l_el.get_text(strip=True) if l_el else "India",
+            "job_type": "fulltime",
+            "experience_level": "mid",
+            "url": href,
+            "description": "",
+            "posted_date": None,
+            "scraped_at": now,
+            "last_checked_at": None,
+            "status": "unchecked",
+            "consecutive_fails": 0,
+            "dedup_group_id": None
+        })
+    return jobs
+
 SCRAPERS = {
     "instahyre": scrape_instahyre,
     "naukri": scrape_naukri,
@@ -465,5 +520,6 @@ SCRAPERS = {
     "freshersworld": scrape_freshersworld,
     "apna": scrape_apna,
     "indeed": scrape_indeed,
+    "glassdoor": scrape_glassdoor,
     "linkedin": scrape_linkedin,
 }
