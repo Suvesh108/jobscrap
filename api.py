@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, Response
 
 import db
 import scraper
+import scrapers
 
 app = FastAPI(title="JobScrap API", description="Autonomous India Job Aggregator REST API", version="1.0.0")
 
@@ -53,23 +54,38 @@ def search_frontend_compatible(
     source: Optional[str] = None,
     results: int = Query(25, ge=1, le=100)
 ):
-    # Frontend passes: /search?query=...&location=...&sources=instahyre&results=25
+    # Frontend passes: /search?query=...&location=...&sources=internshala&results=25
     src = sources or source
+    target_src = src.lower().strip() if src and src.lower().strip() != "all" else None
+    
+    # 1. Search DB for matching live jobs with query
     jobs = db.search_jobs(
         query=query,
         location=location,
-        source=src if src and src != "all" else None,
+        source=target_src,
         status="live",
         limit=results
     )
+    
+    # 2. If no jobs match query in DB, try on-demand live scrape from portal
+    if not jobs and target_src and target_src in scrapers.SCRAPERS:
+        try:
+            fresh = scrapers.SCRAPERS[target_src](query=query or "developer", count=min(results, 10))
+            if fresh:
+                scraper.assign_dedup_groups(fresh)
+                for j in fresh:
+                    db.upsert_job(j)
+                jobs = fresh
+        except Exception as e:
+            pass
+
+    # 3. If still empty, return recent live jobs from that source so frontend ALWAYS gets genuine links
+    if not jobs and target_src:
+        jobs = db.search_jobs(source=target_src, limit=results)
+
+    # 4. If target_src wasn't specified, return general recent jobs
     if not jobs:
-        # Fallback: if no live matching jobs, try unchecked or recent
-        jobs = db.search_jobs(
-            query=query,
-            location=location,
-            source=src if src and src != "all" else None,
-            limit=results
-        )
+        jobs = db.search_jobs(limit=results)
 
     out = []
     for j in jobs:
