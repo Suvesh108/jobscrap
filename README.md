@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Suvesh108/jobscrap/releases/tag/v0.2"><img src="https://img.shields.io/badge/Release-v0.2-blue.svg" alt="Release v0.2" /></a>
+  <a href="https://github.com/Suvesh108/jobscrap/releases/tag/v0.3"><img src="https://img.shields.io/badge/Release-v0.3-blue.svg" alt="Release v0.3" /></a>
   <img src="https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg" alt="Python Version" />
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License" />
   <img src="https://img.shields.io/badge/Portals-9%20Sources-orange.svg" alt="Portals" />
@@ -28,13 +28,12 @@ Unlike generic scrapers that only dump raw un-deduplicated CSVs, **JobScrap** is
 
 ---
 
-## 🚀 Release v0.2 Highlights
+## 🚀 Release v0.3 Highlights
 
-- 🔄 **Frontend-Compatible `/search` Endpoint**: Added direct array adapter for React/Vite frontends returning formatted `JobListing[]` objects.
-- 🛡️ **Soft-404 & Expired Redirect Detection**: Catches sneaky redirects where portals return HTTP 200 on expired listings (e.g. Naukri redirect to `?expJD=true`, Indeed search redirects).
-- 🔒 **OWASP Top 10:2025 Security Patches**: Strict SSRF IP guard, query slug sanitization, and credential redaction in logs.
-- 💰 **Salary Normalization**: Standardizes LPA, Lakhs, and monthly rupee ranges into integer INR annual minimum and maximum values.
-- ⚡ **Scalable Deduplication**: Indexed candidate pre-filtering to ensure $O(1)$ lookup performance at scale.
+- 🎯 **100% Real URL Guarantee**: Completely eliminated fake mock 404 fallback URLs (`mock-Date.now()`) across all frontend adapters and backend endpoints.
+- ⚡ **On-Demand Real-Time Scraping**: When a user searches for an uncached keyword, `/search` executes a real-time portal scrape on the fly and saves the genuine job listings into SQLite.
+- 🛡️ **Intelligent Fallback Layer**: If zero exact keyword matches exist, `/search` gracefully returns genuine recent live postings from that source rather than returning an empty payload.
+- 🔍 **Enhanced Soft-404 Detection**: Automatically catches and purges stealth redirect pages from Naukri, Indeed, and Internshala that return HTTP 200 on expired listings.
 
 ---
 
