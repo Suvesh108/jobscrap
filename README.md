@@ -1,6 +1,39 @@
 # JobScrap
 
-An autonomous, multi-tier job scraper and aggregator for India-focused hiring platforms. Built from scratch without heavy scraper frameworks or `jobspy`.
+<p align="center">
+  <strong>Autonomous India Job Aggregator, TLS Bypass Scraper & Deduplication Pipeline</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Release-v0.1-blue.svg" alt="Release v0.1" />
+  <img src="https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg" alt="Python Version" />
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License" />
+  <img src="https://img.shields.io/badge/Sources-9%20Platforms-orange.svg" alt="Sources" />
+</p>
+
+---
+
+## 📖 About
+
+**JobScrap** is a self-healing, multi-tier job scraper and aggregator built from scratch specifically for the Indian hiring market. Unlike generic scrapers (like `JobSpy`) that only return raw in-memory dataframes for US boards, JobScrap is an end-to-end autonomous pipeline:
+
+- **9 Indian Platforms**: Aggregates tech, fresher, and entry-level jobs across Instahyre, Naukri, Internshala, Shine, Freshersworld, Apna, Indeed India, Glassdoor, and LinkedIn.
+- **TLS Fingerprint Bypass**: Emulates browser TLS handshakes (JA3, JA4, cipher suites, HTTP/2 frames) via `curl_cffi` to glide past Cloudflare Turnstile and bot filters.
+- **Autonomous Link Lifecycle**: Includes an independent async validation worker with a 2-strike purge rule that automatically detects and wipes expired/dead links.
+- **Smart Deduplication**: Uses token-based Jaccard similarity thresholding (`0.75`) with candidate pre-filtering to prevent cross-board duplicate clutter.
+- **Developer First**: Features a persistent SQLite store (WAL mode), FastAPI REST server (`GET /jobs`, `GET /stats`), CSV/JSON export utility, and 24/7 background scheduler daemon.
+
+---
+
+## 🚀 Release v0.1 Highlights
+
+- ⚡ **9 Core Scrapers**: Built from scratch with zero dependency on `jobspy` or Selenium.
+- 🛡️ **OWASP Top 10 Hardening**: Built-in SSRF validation guard, path sanitization, and proxy credential masking.
+- 💰 **Salary Normalization**: Automatic parsing of LPA, Lakhs, and monthly rupee amounts into integer min/max fields.
+- 🌐 **Built-in REST API**: FastAPI server exposing search, pagination, and trigger endpoints for frontend consumption.
+- 🔄 **Autonomous Daemon**: Decoupled scraping and link validation loops running 24/7 via standard `asyncio`.
+
+---
 
 ## Supported Sources
 
