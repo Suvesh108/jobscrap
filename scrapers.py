@@ -1,5 +1,6 @@
 import itertools
 import json
+import logging
 import os
 import random
 import re
@@ -11,6 +12,10 @@ from typing import Any, Dict, List, Optional
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from curl_cffi.requests import Session
+
+import utils
+
+logger = logging.getLogger("jobscrap")
 
 DEFAULT_TIMEOUT = 20
 DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -38,7 +43,7 @@ def get_session(headers: Optional[Dict[str, str]] = None, impersonate: str = DEF
     if "User-Agent" not in h:
         h["User-Agent"] = DEFAULT_UA
     proxy = get_proxy()
-    time.sleep(random.uniform(0.3, 0.7))
+    time.sleep(random.uniform(0.2, 0.5))
     proxies = {"http": proxy, "https": proxy} if proxy else None
     return Session(headers=h, proxies=proxies, impersonate=impersonate, timeout=DEFAULT_TIMEOUT)
 
@@ -50,12 +55,14 @@ def scrape_instahyre(query: str = "developer", count: int = 20) -> List[Dict[str
     url = f"https://www.instahyre.com/api/v1/job_search/?count={count}&offset=0"
     jobs = []
     try:
-        with get_session() as s:
-            resp = s.get(url)
-            resp.raise_for_status()
-            data = resp.json().get("objects", [])
+        def fetch():
+            with get_session() as s:
+                resp = s.get(url)
+                resp.raise_for_status()
+                return resp.json().get("objects", [])
+        data = utils.retry_call(fetch, max_retries=2)
     except Exception as e:
-        print(f"[instahyre] fetch error: {e}")
+        logger.error(f"[instahyre] fetch error: {utils.redact_credentials(e)}")
         return []
 
     now = _now_iso()
@@ -66,6 +73,7 @@ def scrape_instahyre(query: str = "developer", count: int = 20) -> List[Dict[str
             emp.get("instahyre_note"),
             f"Skills: {', '.join(item.get('keywords', []))}" if item.get("keywords") else None
         ]))
+        min_sal, max_sal = utils.parse_salary(desc)
         jobs.append({
             "id": str(uuid.uuid4()),
             "source": "instahyre",
@@ -82,23 +90,29 @@ def scrape_instahyre(query: str = "developer", count: int = 20) -> List[Dict[str
             "last_checked_at": None,
             "status": "unchecked",
             "consecutive_fails": 0,
-            "dedup_group_id": None
+            "dedup_group_id": None,
+            "min_salary_inr": min_sal,
+            "max_salary_inr": max_sal
         })
     return jobs
 
 # TIER 1/2: Internshala (Server-rendered HTML)
 def scrape_internshala(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
-    slug = query.strip().replace(" ", "-").lower()
+    slug = utils.sanitize_slug(query)
     url = f"https://internshala.com/jobs/{slug}-jobs/"
     jobs = []
     try:
-        with get_session() as s:
-            resp = s.get(url, allow_redirects=True)
-            if resp.status_code != 200:
-                return []
-            html = resp.text
+        def fetch():
+            with get_session() as s:
+                resp = s.get(url, allow_redirects=True)
+                if resp.status_code != 200:
+                    return ""
+                return resp.text
+        html = utils.retry_call(fetch, max_retries=2)
+        if not html:
+            return []
     except Exception as e:
-        print(f"[internshala] fetch error: {e}")
+        logger.error(f"[internshala] fetch error: {utils.redact_credentials(e)}")
         return []
 
     soup = BeautifulSoup(html, "html.parser")
@@ -116,6 +130,8 @@ def scrape_internshala(query: str = "developer", count: int = 20) -> List[Dict[s
         comp = comp_el.get_text(strip=True).split("\n")[0].strip() if comp_el else "Unknown Company"
         loc_el = c.find(class_=re.compile(r"location"))
         loc = loc_el.get_text(strip=True) if loc_el else "India"
+        sal_el = c.find(class_=re.compile(r"salary|stipend"))
+        min_sal, max_sal = utils.parse_salary(sal_el.get_text(strip=True) if sal_el else "")
         job_id = href.split("/")[-1]
         jobs.append({
             "id": str(uuid.uuid4()),
@@ -133,13 +149,15 @@ def scrape_internshala(query: str = "developer", count: int = 20) -> List[Dict[s
             "last_checked_at": None,
             "status": "unchecked",
             "consecutive_fails": 0,
-            "dedup_group_id": None
+            "dedup_group_id": None,
+            "min_salary_inr": min_sal,
+            "max_salary_inr": max_sal
         })
     return jobs
 
 # TIER 2: Shine.com (Next.js SSR JSON)
 def scrape_shine(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
-    slug = query.strip().replace(" ", "-").lower()
+    slug = utils.sanitize_slug(query)
     url = f"https://www.shine.com/job-search/{slug}-jobs"
     jobs = []
     try:
@@ -154,7 +172,7 @@ def scrape_shine(query: str = "developer", count: int = 20) -> List[Dict[str, An
             data = json.loads(tag.string)
             raw_jobs = data['props']['pageProps']['initialState']['jsrp']['searchresult']['data']['results']
     except Exception as e:
-        print(f"[shine] fetch error: {e}")
+        logger.error(f"[shine] fetch error: {utils.redact_credentials(e)}")
         return []
 
     now = _now_iso()
@@ -164,6 +182,7 @@ def scrape_shine(query: str = "developer", count: int = 20) -> List[Dict[str, An
         slug_path = item.get("jSlug") or ""
         job_url = f"https://www.shine.com/jobs/{slug_path}" if not slug_path.startswith("http") else slug_path
         desc = BeautifulSoup(item.get("jJD", ""), "html.parser").get_text(strip=True)[:500]
+        min_sal, max_sal = utils.parse_salary(item.get("jSal", ""))
         jobs.append({
             "id": str(uuid.uuid4()),
             "source": "shine",
@@ -180,13 +199,15 @@ def scrape_shine(query: str = "developer", count: int = 20) -> List[Dict[str, An
             "last_checked_at": None,
             "status": "unchecked",
             "consecutive_fails": 0,
-            "dedup_group_id": None
+            "dedup_group_id": None,
+            "min_salary_inr": min_sal,
+            "max_salary_inr": max_sal
         })
     return jobs
 
 # TIER 2: Freshersworld (Fresher-focused HTML)
 def scrape_freshersworld(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
-    slug = query.strip().replace(" ", "-").lower()
+    slug = utils.sanitize_slug(query)
     url = f"https://www.freshersworld.com/jobs/jobsearch/{slug}-jobs"
     jobs = []
     try:
@@ -196,7 +217,7 @@ def scrape_freshersworld(query: str = "developer", count: int = 20) -> List[Dict
                 return []
             soup = BeautifulSoup(resp.text, "html.parser")
     except Exception as e:
-        print(f"[freshersworld] fetch error: {e}")
+        logger.error(f"[freshersworld] fetch error: {utils.redact_credentials(e)}")
         return []
 
     now = _now_iso()
@@ -233,13 +254,16 @@ def scrape_freshersworld(query: str = "developer", count: int = 20) -> List[Dict
                 "last_checked_at": None,
                 "status": "unchecked",
                 "consecutive_fails": 0,
-                "dedup_group_id": None
+                "dedup_group_id": None,
+                "min_salary_inr": None,
+                "max_salary_inr": None
             })
     return jobs
 
 # TIER 2: Apna (Blue-collar / Entry-level HTML)
 def scrape_apna(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
-    url = f"https://apna.co/jobs?location=all-india&text={query}"
+    clean_q = urllib.parse.quote_plus(query.strip())
+    url = f"https://apna.co/jobs?location=all-india&text={clean_q}"
     jobs = []
     try:
         with get_session() as s:
@@ -249,7 +273,7 @@ def scrape_apna(query: str = "developer", count: int = 20) -> List[Dict[str, Any
             soup = BeautifulSoup(resp.text, "html.parser")
             links = [a for a in soup.find_all("a") if a.get("href") and "/job/" in a.get("href")][:count]
     except Exception as e:
-        print(f"[apna] fetch error: {e}")
+        logger.error(f"[apna] fetch error: {utils.redact_credentials(e)}")
         return []
 
     now = _now_iso()
@@ -260,6 +284,8 @@ def scrape_apna(query: str = "developer", count: int = 20) -> List[Dict[str, Any
         spans = [s.get_text(strip=True) for s in l.find_all("span") if s.get_text(strip=True)]
         comp = spans[0] if len(spans) > 0 else "Unknown Company"
         loc = spans[1] if len(spans) > 1 else "India"
+        salary_text = spans[2] if len(spans) > 2 else ""
+        min_sal, max_sal = utils.parse_salary(salary_text)
         href = l.get("href", "")
         job_id = href.split("-")[-1] if "-" in href else href
         jobs.append({
@@ -278,13 +304,16 @@ def scrape_apna(query: str = "developer", count: int = 20) -> List[Dict[str, Any
             "last_checked_at": None,
             "status": "unchecked",
             "consecutive_fails": 0,
-            "dedup_group_id": None
+            "dedup_group_id": None,
+            "min_salary_inr": min_sal,
+            "max_salary_inr": max_sal
         })
     return jobs
 
 # TIER 2: Indeed India (Direct Mobile with Safari/Chrome TLS fingerprint bypass)
 def scrape_indeed(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
-    url = f"https://in.indeed.com/m/jobs?q={query}&l=India"
+    clean_q = urllib.parse.quote_plus(query.strip())
+    url = f"https://in.indeed.com/m/jobs?q={clean_q}&l=India"
     headers = {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -302,7 +331,7 @@ def scrape_indeed(query: str = "developer", count: int = 20) -> List[Dict[str, A
             soup = BeautifulSoup(resp.text, "html.parser")
             links = [a for a in soup.find_all("a") if a.get("href") and "jk=" in a.get("href")]
     except Exception as e:
-        print(f"[indeed] fetch error: {e}")
+        logger.error(f"[indeed] fetch error: {utils.redact_credentials(e)}")
         return []
 
     seen = set()
@@ -344,13 +373,15 @@ def scrape_indeed(query: str = "developer", count: int = 20) -> List[Dict[str, A
             "last_checked_at": None,
             "status": "unchecked",
             "consecutive_fails": 0,
-            "dedup_group_id": None
+            "dedup_group_id": None,
+            "min_salary_inr": None,
+            "max_salary_inr": None
         })
     return jobs
 
 # TIER 1/2: Naukri (Native Windows Edge via Playwright)
 def scrape_naukri(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
-    slug = query.strip().replace(" ", "-").lower()
+    slug = utils.sanitize_slug(query)
     url = f"https://www.naukri.com/{slug}-jobs"
     jobs = []
     try:
@@ -372,12 +403,14 @@ def scrape_naukri(query: str = "developer", count: int = 20) -> List[Dict[str, A
                     const comp = card ? card.querySelector('.comp-name') : null;
                     const loc = card ? (card.querySelector('.locWdth') || card.querySelector('.loc-wrap')) : null;
                     const exp = card ? card.querySelector('.expwdth') : null;
+                    const sal = card ? card.querySelector('.sal-wrap, .ni-job-tuple-icon-srp-rupee') : null;
                     return {
                         title: a.innerText.trim(),
                         url: a.href,
                         company: comp ? comp.innerText.trim() : 'Unknown Company',
                         location: loc ? loc.innerText.trim() : 'India',
-                        experience: exp ? exp.innerText.trim() : '0-5 Yrs'
+                        experience: exp ? exp.innerText.trim() : '0-5 Yrs',
+                        salary: sal ? sal.innerText.trim() : ''
                     };
                 });
             }""")
@@ -392,6 +425,7 @@ def scrape_naukri(query: str = "developer", count: int = 20) -> List[Dict[str, A
                     continue
                 seen_urls.add(u)
                 job_id = u.split("-")[-1] if "-" in u else str(uuid.uuid4())
+                min_sal, max_sal = utils.parse_salary(item.get("salary", ""))
                 jobs.append({
                     "id": str(uuid.uuid4()),
                     "source": "naukri",
@@ -408,15 +442,18 @@ def scrape_naukri(query: str = "developer", count: int = 20) -> List[Dict[str, A
                     "last_checked_at": None,
                     "status": "unchecked",
                     "consecutive_fails": 0,
-                    "dedup_group_id": None
+                    "dedup_group_id": None,
+                    "min_salary_inr": min_sal,
+                    "max_salary_inr": max_sal
                 })
     except Exception as e:
-        print(f"[naukri] fetch error: {e}")
+        logger.error(f"[naukri] fetch error: {utils.redact_credentials(e)}")
     return jobs
 
 # TIER 3: LinkedIn (Direct Guest API)
 def scrape_linkedin(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
-    url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={query}&location=India&start=0"
+    clean_q = urllib.parse.quote_plus(query.strip())
+    url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={clean_q}&location=India&start=0"
     jobs = []
     try:
         with get_session() as s:
@@ -426,7 +463,7 @@ def scrape_linkedin(query: str = "developer", count: int = 20) -> List[Dict[str,
             soup = BeautifulSoup(resp.text, "html.parser")
             cards = soup.find_all("li")[:count]
     except Exception as e:
-        print(f"[linkedin] fetch error: {e}")
+        logger.error(f"[linkedin] fetch error: {utils.redact_credentials(e)}")
         return []
 
     now = _now_iso()
@@ -456,13 +493,15 @@ def scrape_linkedin(query: str = "developer", count: int = 20) -> List[Dict[str,
             "last_checked_at": None,
             "status": "unchecked",
             "consecutive_fails": 0,
-            "dedup_group_id": None
+            "dedup_group_id": None,
+            "min_salary_inr": None,
+            "max_salary_inr": None
         })
     return jobs
 
 # TIER 3: Glassdoor (Unlocked via Chrome124 TLS Fingerprint Impersonation)
 def scrape_glassdoor(query: str = "developer", count: int = 20) -> List[Dict[str, Any]]:
-    slug = query.strip().replace(" ", "-").lower()
+    slug = utils.sanitize_slug(query)
     url = f"https://www.glassdoor.co.in/Job/india-{slug}-jobs-SRCH_IL.0,5_IN115_KO6,15.htm"
     headers = {
         "Accept-Language": "en-US,en;q=0.9",
@@ -477,7 +516,7 @@ def scrape_glassdoor(query: str = "developer", count: int = 20) -> List[Dict[str
             soup = BeautifulSoup(resp.text, "html.parser")
             cards = soup.find_all("li", class_=re.compile(r"JobsList_jobListItem|jobListing"))
     except Exception as e:
-        print(f"[glassdoor] fetch error: {e}")
+        logger.error(f"[glassdoor] fetch error: {utils.redact_credentials(e)}")
         return []
 
     now = _now_iso()
@@ -485,6 +524,7 @@ def scrape_glassdoor(query: str = "developer", count: int = 20) -> List[Dict[str
         t_el = c.find("a", class_=re.compile(r"jobTitle|JobCard_jobTitle"))
         c_el = c.find(class_=re.compile(r"EmployerName|EmployerProfile"))
         l_el = c.find(class_=re.compile(r"location|JobCard_location"))
+        sal_el = c.find(class_=re.compile(r"salaryEstimate|JobCard_salaryEstimate"))
         if not t_el:
             continue
         href = t_el.get("href", "")
@@ -492,6 +532,7 @@ def scrape_glassdoor(query: str = "developer", count: int = 20) -> List[Dict[str
             href = f"https://www.glassdoor.co.in{href}"
         m = re.search(r"jobListingId=(\d+)", href)
         job_id = m.group(1) if m else str(uuid.uuid4())
+        min_sal, max_sal = utils.parse_salary(sal_el.get_text(strip=True) if sal_el else "")
         jobs.append({
             "id": str(uuid.uuid4()),
             "source": "glassdoor",
@@ -508,7 +549,9 @@ def scrape_glassdoor(query: str = "developer", count: int = 20) -> List[Dict[str
             "last_checked_at": None,
             "status": "unchecked",
             "consecutive_fails": 0,
-            "dedup_group_id": None
+            "dedup_group_id": None,
+            "min_salary_inr": min_sal,
+            "max_salary_inr": max_sal
         })
     return jobs
 

@@ -63,13 +63,33 @@ python scraper.py validate --hours 6
 python scraper.py stats
 ```
 
-### 4. Run Autonomous 24/7 Scheduler
+### 4. REST API Server (FastAPI)
+```bash
+# Start backend REST API server on port 8000
+python scraper.py serve --port 8000
+
+# Endpoints:
+# GET  /jobs?query=python&location=bangalore&min_salary=1000000&limit=50
+# GET  /jobs/{id}
+# GET  /stats
+# POST /scrape?source=all&query=developer&count=10
+# POST /validate?stale_hours=6
+# GET  /export?format=json|csv
+```
+
+### 5. Export Data to JSON / CSV
+```bash
+python scraper.py export --format json --output jobs.json
+python scraper.py export --format csv --output jobs.csv
+```
+
+### 6. Run Autonomous 24/7 Scheduler Daemon
 ```bash
 # Scrape every 12 hours, validate links every 4 hours
 python scheduler.py --scrape-hours 12 --validate-hours 4
 ```
 
-### 5. Self-Test Verification
+### 7. Self-Test Verification (Security & Dedup Checks)
 ```bash
 # Run internal assertion test suite
 python scraper.py test
