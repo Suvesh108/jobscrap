@@ -45,6 +45,49 @@ def get_stats():
         "sources": by_src
     }
 
+@app.get("/search")
+def search_frontend_compatible(
+    query: Optional[str] = None,
+    location: Optional[str] = None,
+    sources: Optional[str] = None,
+    source: Optional[str] = None,
+    results: int = Query(25, ge=1, le=100)
+):
+    # Frontend passes: /search?query=...&location=...&sources=instahyre&results=25
+    src = sources or source
+    jobs = db.search_jobs(
+        query=query,
+        location=location,
+        source=src if src and src != "all" else None,
+        status="live",
+        limit=results
+    )
+    if not jobs:
+        # Fallback: if no live matching jobs, try unchecked or recent
+        jobs = db.search_jobs(
+            query=query,
+            location=location,
+            source=src if src and src != "all" else None,
+            limit=results
+        )
+
+    out = []
+    for j in jobs:
+        sal = ""
+        if j.get("min_salary_inr") and j.get("max_salary_inr"):
+            sal = f"₹{j['min_salary_inr']:,} - ₹{j['max_salary_inr']:,}"
+        out.append({
+            "title": j["title"],
+            "company": j["company"],
+            "location": j.get("location") or "India",
+            "salary": sal,
+            "url": j["url"],
+            "source": j["source"],
+            "postedDate": j.get("posted_date") or j.get("scraped_at", "")[:10],
+            "description": j.get("description") or ""
+        })
+    return out
+
 @app.get("/jobs")
 def get_jobs(
     query: Optional[str] = None,

@@ -45,20 +45,62 @@ def assign_dedup_groups(new_jobs: List[Dict[str, Any]], db_path: Path = db.DB_PA
         job["dedup_group_id"] = matched_group or str(uuid.uuid4())
         pool.append((job, tokens))
 
-# OWASP A01:2025 SSRF Guarded Link Validator worker
+def is_dead_redirect(original_url: str, final_url: str, content_snippet: str = "") -> bool:
+    orig = original_url.lower()
+    final = final_url.lower()
+    
+    # 1. Naukri soft-404: redirects to search with expJD=true or away from /job-listings
+    if "naukri.com" in orig:
+        if "expjd=true" in final or "/job-listings" not in final:
+            return True
+            
+    # 2. Indeed soft-404: redirects away from viewjob
+    if "indeed.com" in orig:
+        if "viewjob" not in final or "from=expired" in final:
+            return True
+            
+    # 3. Internshala soft-404: redirects to /jobs/ or /internships/ list
+    if "internshala.com" in orig:
+        if "/job/detail/" not in final:
+            return True
+            
+    # 4. Instahyre soft-404: redirects away from /job-
+    if "instahyre.com" in orig:
+        if "/job-" not in final:
+            return True
+            
+    # 5. Shine soft-404: redirects away from /jobs/
+    if "shine.com" in orig:
+        if "/jobs/" not in final:
+            return True
+            
+    # 6. Freshersworld soft-404: redirects to category or home
+    if "freshersworld.com" in orig:
+        if "/jobs/" not in final or "category" in final:
+            return True
+
+    # 7. Page content expiration text
+    snippet_lower = content_snippet.lower()
+    if "job you are looking for is expired" in snippet_lower or "no longer accepting applications" in snippet_lower:
+        return True
+            
+    return False
+
+# OWASP A01:2025 SSRF Guarded Link Validator worker with Soft-404 detection
 async def check_single_url(session: AsyncSession, url: str) -> str:
     # SSRF Protection: Reject private/internal/cloud-metadata addresses before requesting
     if not utils.is_safe_url(url):
         logger.warning(f"Blocked unsafe/SSRF URL check: {url}")
         return "dead"
     try:
-        r = await session.head(url, allow_redirects=True, timeout=10)
+        r = await session.get(url, allow_redirects=True, timeout=12)
         if r.status_code in (404, 410):
             return "dead"
-        if r.status_code >= 400:
-            r = await session.get(url, allow_redirects=True, timeout=10)
-            if r.status_code in (404, 410):
-                return "dead"
+        final_url = str(r.url)
+        snippet = r.text[:2000] if r.text else ""
+        if is_dead_redirect(url, final_url, snippet):
+            logger.info(f"Detected expired/soft-404 link: {url} -> {final_url}")
+            return "dead"
         return "live" if r.status_code < 400 else "unknown"
     except Exception:
         return "unknown"
