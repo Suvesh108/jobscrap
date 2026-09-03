@@ -1,0 +1,3 @@
+# Optional: Add HTTP/SOCKS proxies here (one per line).
+# Format: http://user:pass@host:port or http://host:port
+# If left empty, scrapers connect directly with polite randomized jitter.
