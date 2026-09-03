@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Suvesh108/jobscrap/releases/tag/v0.1"><img src="https://img.shields.io/badge/Release-v0.1-blue.svg" alt="Release v0.1" /></a>
+  <a href="https://github.com/Suvesh108/jobscrap/releases/tag/v0.2"><img src="https://img.shields.io/badge/Release-v0.2-blue.svg" alt="Release v0.2" /></a>
   <img src="https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg" alt="Python Version" />
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License" />
   <img src="https://img.shields.io/badge/Portals-9%20Sources-orange.svg" alt="Portals" />
@@ -23,8 +23,18 @@ Unlike generic scrapers that only dump raw un-deduplicated CSVs, **JobScrap** is
 1. **Multi-Source Scraping**: Scrapes 9 major hiring portals with zero third-party scraper wrappers.
 2. **TLS Fingerprint Bypass**: Emulates genuine browser TLS signatures (JA3, JA4, cipher suites, HTTP/2 frames) to bypass Cloudflare Turnstile and anti-scraping firewalls.
 3. **Cross-Board Jaccard Deduplication**: Detects and links identical job postings across multiple boards using token similarity (`0.75`).
-4. **Dead-Link Auto-Purge**: Regularly audits job links with asynchronous `HEAD`/`GET` requests, automatically deleting dead/expired postings after two consecutive checks.
-5. **REST API & Autonomous Daemon**: Serves data through a built-in FastAPI backend (`GET /jobs`, `GET /stats`) and runs 24/7 background cron loops.
+4. **Dead-Link Auto-Purge & Soft-404 Detection**: Regularly audits job links with asynchronous requests, detecting 404s and stealth redirects (e.g. Naukri `?expJD=true`), auto-purging dead postings.
+5. **REST API & Autonomous Daemon**: Serves data through a built-in FastAPI backend (`GET /search`, `GET /jobs`, `GET /stats`) and runs 24/7 background cron loops.
+
+---
+
+## 🚀 Release v0.2 Highlights
+
+- 🔄 **Frontend-Compatible `/search` Endpoint**: Added direct array adapter for React/Vite frontends returning formatted `JobListing[]` objects.
+- 🛡️ **Soft-404 & Expired Redirect Detection**: Catches sneaky redirects where portals return HTTP 200 on expired listings (e.g. Naukri redirect to `?expJD=true`, Indeed search redirects).
+- 🔒 **OWASP Top 10:2025 Security Patches**: Strict SSRF IP guard, query slug sanitization, and credential redaction in logs.
+- 💰 **Salary Normalization**: Standardizes LPA, Lakhs, and monthly rupee ranges into integer INR annual minimum and maximum values.
+- ⚡ **Scalable Deduplication**: Indexed candidate pre-filtering to ensure $O(1)$ lookup performance at scale.
 
 ---
 
