@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Suvesh108/jobscrap/releases/tag/v0.3"><img src="https://img.shields.io/badge/Release-v0.3-blue.svg" alt="Release v0.3" /></a>
+  <a href="https://github.com/Suvesh108/jobscrap/releases/tag/v0.4"><img src="https://img.shields.io/badge/Release-v0.4-blue.svg" alt="Release v0.4" /></a>
   <img src="https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg" alt="Python Version" />
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License" />
   <img src="https://img.shields.io/badge/Portals-9%20Sources-orange.svg" alt="Portals" />
@@ -28,12 +28,12 @@ Unlike generic scrapers that only dump raw un-deduplicated CSVs, **JobScrap** is
 
 ---
 
-## 🚀 Release v0.3 Highlights
+## 🚀 Release v0.4 Highlights
 
-- 🎯 **100% Real URL Guarantee**: Completely eliminated fake mock 404 fallback URLs (`mock-Date.now()`) across all frontend adapters and backend endpoints.
-- ⚡ **On-Demand Real-Time Scraping**: When a user searches for an uncached keyword, `/search` executes a real-time portal scrape on the fly and saves the genuine job listings into SQLite.
-- 🛡️ **Intelligent Fallback Layer**: If zero exact keyword matches exist, `/search` gracefully returns genuine recent live postings from that source rather than returning an empty payload.
-- 🔍 **Enhanced Soft-404 Detection**: Automatically catches and purges stealth redirect pages from Naukri, Indeed, and Internshala that return HTTP 200 on expired listings.
+- 🌐 **All 9 Platforms Synchronized**: Guaranteed parallel execution across Naukri, Instahyre, Internshala, Shine, Freshersworld, Apna, Indeed, LinkedIn, and Glassdoor without silent omissions.
+- ⚡ **Auto-Adapter Hydration**: Auto-merges and enables all 9 platforms so legacy browser storage states never restrict searches to only 2 boards.
+- 🛡️ **Race-Condition-Free Streaming**: Robust `Promise.allSettled` execution ensuring all platform streams complete and populate live job links.
+- 🚫 **Zero Mock Guarantee**: Completely removed legacy fake mock URL generators across the entire system.
 
 ---
 
