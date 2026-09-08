@@ -1,4 +1,4 @@
-# JobScrap — Ultimate Python Job Scraper & Aggregator
+# JobScrap — Ultimate Job Scraper & Aggregator
 
 <p align="center">
   <strong>The high-performance, open-source Python Job Scraper & Aggregator for India & Global tech hiring.</strong><br>
